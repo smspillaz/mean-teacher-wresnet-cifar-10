@@ -1,0 +1,3 @@
+[submodule "submodules/wide-resnet.pytorch"]
+	path = submodules/wresnet
+	url = git://github.com/meliketoy/wide-resnet.pytorch
