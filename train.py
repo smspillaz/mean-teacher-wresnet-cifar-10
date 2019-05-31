@@ -46,7 +46,7 @@ def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4):
         ToTensor(),
         Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.247, 0.243, 0.261))
     ])
-        
+
     train_dataset = Dataset('data', train=True, transform=train_tfms, download=True)
     val_dataset = Dataset('data', train=False, transform=val_tfms, download=True)
 
@@ -93,14 +93,12 @@ def training_loop(model,
             outputs = model(batch)
             loss = criterion(outputs, targets)
             loss.backward()
-            
             optimizer.step()
-            
+
             progress.set_postfix({
                 'loss': loss.item(),
                 'acc': compute_accuracy(outputs, targets)
             })
-                
 
         progress = tqdm.tqdm(val_loader, desc="Validation Batch")
         for batch_index, (batch, targets) in enumerate(progress):
@@ -148,8 +146,7 @@ def main():
                   args.epochs)
 
     if args.save_to:
-        torch.save(model.get_state_dict(), args.save_to)
-
+        torch.save(model.state_dict(), args.save_to)
 
 if __name__ == "__main__":
     main()
