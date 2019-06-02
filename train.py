@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 
 from sklearn.metrics import accuracy_score
 
-from torchvision.datasets import CIFAR10
+from torchvision import datasets
 from torchvision.transforms import (
     Compose,
     Normalize,
@@ -133,7 +133,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), 0.2)
     device = 'cuda' if args.cuda else 'cpu'
 
-    model = model.to(device)
+    train_loader, val_loader = create_dataloaders(getattr(datasets, args.dataset), batch_size=args.batch_size)
 
     train_loader, val_loader = create_dataloaders(CIFAR10, batch_size=args.batch_size)
 
