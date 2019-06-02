@@ -6,10 +6,12 @@ LeakyReLU with standard procedures for
 data augmentation etc.
 """
 
+import abc
 import argparse
+import copy
+import csv
 import os
 import sys
-
 
 import numpy as np
 
@@ -17,6 +19,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+
+from collections import defaultdict
+from copy import deepcopy
 
 from torch.utils.data import DataLoader
 
@@ -69,8 +74,84 @@ def compute_accuracy(outputs, labels):
     outputs_array = outputs.cpu().detach().argmax(dim=1).numpy()
     labels_array = labels.cpu().numpy()
 
-    return accuracy_score(labels_array, outputs_array)
+    # Don't compute over unlabelled data
+    return accuracy_score([
+        l for l in labels_array if l != -1
+    ], [
+        o for l, o in zip(labels_array, outputs_array) if l != -1
+    ])
 
+
+def explore_module_children(module):
+    for child in module.children():
+        if not list(child.children()):
+            yield child
+
+        if isinstance(child, nn.Module):
+            yield from explore_module_children(child)
+
+
+def iterate_all_parameters(model):
+    for module in explore_module_children(model):
+        for p in module.parameters():
+            if p.requires_grad:
+                yield p
+
+
+
+class ConsistencyCostRegularizer(metaclass=abc.ABCMeta):
+    """An interface for consistency cost regularization."""
+
+    @abc.abstractmethod
+    def compute_loss(self, inputs, output):
+        """Compute the consistency loss."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def update(self, student, outputs):
+        """Update using the student and the outputs of the student."""
+        raise NotImplementedError
+
+
+
+class MeanTeacherConsistencyCostRegularizer(ConsistencyCostRegularizer):
+    """A class that takes the Mean Teacher approach to consistency cost."""
+
+    def __init__(self, student, beta):
+        """Initialize with student model."""
+        super().__init__()
+        self.teacher = copy.deepcopy(student)
+        self.mse = nn.MSELoss(reduction='sum')
+        self.beta = beta
+
+    def compute_loss(self, inputs, outputs):
+        """Compute the loss by comparing the outputs with outputs from the teacher."""
+        teacher_outputs = self.teacher(inputs)
+        return self.mse(outputs, teacher_outputs.detach())
+
+    def update(self, student, outputs):
+        """Update the teacher using weight averaging.
+
+        This will apply weight averaging to all parameters, including Batch
+        Normalization layers.
+        """
+        for param, new_param in zip(self.teacher.parameters(),
+                                    student.parameters()):
+            param.data.mul_(self.beta).add_(1 - self.beta, new_param.data)
+
+
+class NullRegularizer(ConsistencyCostRegularizer):
+    """A class that doesn't do any regularization."""
+
+    def __init__(self):
+        super().__init__()
+
+    def compute_loss(self, inputs, outputs):
+        return torch.tensor([0.0])
+
+
+    def update(self, student, outputs):
+        pass
 
 
 def training_loop(model,
@@ -78,44 +159,109 @@ def training_loop(model,
                   val_loader,
                   criterion,
                   optimizer,
+                  scheduler,
+                  regularizer,
                   device,
-                  epochs):
+                  epochs,
+                  consistency_cost_curve,
+                  labelling_func,
+                  noise,
+                  test_only,
+                  write_func):
     """Main training loop."""
 
-    for epoch in tqdm.tqdm(range(0, epochs), desc="Epoch"):
+    for epoch in tqdm.tqdm(range(0, 1 if test_only else epochs), desc="Epoch"):
         model.train()
 
-        progress = tqdm.tqdm(train_loader, desc="Train Batch")
+        if not test_only:
+            losses = []
+            consistency_losses = []
+            accuracies = []
+            progress = tqdm.tqdm(train_loader, desc="Train Batch")
+            for batch_index, (batch, targets) in enumerate(progress):
+                batch = batch.to(device)
+                targets = labelling_func(targets.to(device))
+
+                optimizer.zero_grad()
+
+                outputs = model(batch + torch.rand(batch.size()).to(device) * noise)
+                classification_loss = criterion(outputs, targets)
+                consistency_loss = regularizer.compute_loss(batch, outputs).to(device)
+                consistency_discount = consistency_cost_curve(epoch)
+                loss = classification_loss + consistency_loss * consistency_discount
+                loss.backward()
+
+                optimizer.step()
+                scheduler.step()
+                regularizer.update(model, outputs)
+
+                accuracy = compute_accuracy(outputs, targets)
+                progress.set_postfix({
+                    'loss': loss.item(),
+                    'const': consistency_loss.item() * consistency_discount,
+                    'acc': accuracy
+                })
+                losses.append(loss.item())
+                consistency_losses.append(consistency_loss.item() * consistency_discount)
+                accuracies.append(accuracy)
+                write_func('train', epoch, loss.item(), consistency_loss.item() * consistency_discount, accuracy)
+
+            tqdm.tqdm.write("Training (Epoch {}): Loss: {}, Consistency: {}, Acc: {}".format(epoch,
+                                                                                             np.mean(losses),
+                                                                                             np.mean(consistency_losses),
+                                                                                             np.mean(accuracies)))
+
+        progress = tqdm.tqdm(val_loader, desc="Validation Batch")
+
+        val_model = getattr(regularizer, 'teacher', model)
+        val_model.eval()
+
+        losses = []
+        accuracies = []
         for batch_index, (batch, targets) in enumerate(progress):
             batch = batch.to(device)
             targets = targets.to(device)
 
             optimizer.zero_grad()
 
-            outputs = model(batch)
+            outputs = val_model(batch)
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
 
+            accuracy = compute_accuracy(outputs, targets)
             progress.set_postfix({
                 'loss': loss.item(),
-                'acc': compute_accuracy(outputs, targets)
+                'acc': accuracy
             })
+            losses.append(loss.item())
+            accuracies.append(accuracy.item())
+            write_func('valid', epoch, loss.item(), 0.0, accuracy)
 
-        progress = tqdm.tqdm(val_loader, desc="Validation Batch")
-        for batch_index, (batch, targets) in enumerate(progress):
-            batch = batch.to(device)
-            targets = targets.to(device)
+        tqdm.tqdm.write("Validation (Epoch {}): Loss: {}, Acc: {}".format(epoch, np.mean(losses), np.mean(accuracies)))
 
-            optimizer.zero_grad()
+        # Done evaluating, set it back to train
+        val_model.train()
 
-            outputs = model(batch)
-            loss = criterion(outputs, targets)
 
-            progress.set_postfix({
-                'loss': loss.item(),
-                'acc': compute_accuracy(outputs, targets)
-            })
+IN_CHANNELS = defaultdict(lambda: 3, **{
+    "MNIST": 1,
+    "CIFAR10": 3
+})
+
+
+def result_writer(base_model_name):
+    """Write result log to something can be visualized later."""
+    log_filename = "{}.log".format(base_model_name)
+
+    csv_file = open(log_filename, "w")
+    writer = csv.writer(csv_file)
+
+    def write(*args):
+        writer.writerow(args)
+        csv_file.flush()
+
+    return write
 
 
 def main():
@@ -123,32 +269,54 @@ def main():
     parser = argparse.ArgumentParser("MeanTeacher with CIFAR10.")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--learning-rate", type=float, default=0.02)
     parser.add_argument("--save-to", type=str, default="model.pt")
     parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--cuda", action='store_true', default=False)
+    parser.add_argument("--supervised-ratio", type=float, default=1.0)
+    parser.add_argument("--regularizer", type=str, default="mt")
+    parser.add_argument("--dataset", type=str, default="CIFAR10")
+    parser.add_argument("--load", type=str, default=None)
+    parser.add_argument("--test-only", action='store_true')
     args = parser.parse_args()
 
-    model = Wide_ResNet(28, 10, args.dropout, 10)
+    device = 'cuda' if args.cuda else 'cpu'
+    model = Wide_ResNet(28, 10, args.dropout, IN_CHANNELS[args.dataset], 10).to(device)
     print(model)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), 0.2)
-    device = 'cuda' if args.cuda else 'cpu'
+    if args.load:
+        model.load_state_dict(torch.load(args.load))
 
     train_loader, val_loader = create_dataloaders(getattr(datasets, args.dataset), batch_size=args.batch_size)
 
-    train_loader, val_loader = create_dataloaders(CIFAR10, batch_size=args.batch_size)
+    criterion = nn.CrossEntropyLoss(ignore_index=-1)
+    optimizer = optim.Adam(model.parameters(), args.learning_rate, weight_decay=2e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                     len(train_loader) * (args.epochs + 50),
+                                                     eta_min=0,
+                                                     last_epoch=-1)
+    regularizer = MeanTeacherConsistencyCostRegularizer(model, 0.99) if args.regularizer == "mt" else NullRegularizer()
 
     training_loop(model,
                   train_loader,
                   val_loader,
                   criterion,
                   optimizer,
+                  scheduler,
+                  regularizer,
                   device,
-                  args.epochs)
+                  args.epochs,
+                  lambda epoch: 1.0 - np.exp(-25.0 * np.square((epoch + 1) / args.epochs)),
+                  lambda labels: torch.tensor([
+                      l if i < args.batch_size * args.supervised_ratio else -1
+                      for i, l in enumerate(labels)
+                  ]).to(device),
+                  0.1,
+                  args.test_only,
+                  result_writer(args.save_to))
 
     if args.save_to:
-        torch.save(model.state_dict(), args.save_to)
+        torch.save(getattr(regularizer, "teacher", model).state_dict(), args.save_to)
 
 if __name__ == "__main__":
     main()
