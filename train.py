@@ -226,8 +226,6 @@ def training_loop(model,
 
             outputs = val_model(batch)
             loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
 
             accuracy = compute_accuracy(outputs, targets)
             progress.set_postfix({
