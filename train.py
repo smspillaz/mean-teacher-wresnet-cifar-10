@@ -51,13 +51,15 @@ def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4):
     val_dataset = Dataset('data', train=False, transform=val_tfms, download=True)
 
     return (
+        # Can't shuffle the training data, since we always want to mask out
+        # a certain percentage of it
         DataLoader(train_dataset,
                    batch_size=batch_size,
-                   shuffle=True,
+                   shuffle=False,
                    pin_memory=True),
         DataLoader(val_dataset,
                    batch_size=batch_size,
-                   shuffle=True,
+                   shuffle=False,
                    pin_memory=True)
     )
 
