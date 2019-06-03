@@ -309,6 +309,14 @@ def result_writer(base_model_name):
     return write
 
 
+def disable_grad(model):
+    """Disable gradients on all model parameters."""
+    for param in model.parameters():
+        param.requires_grad_(False)
+
+    return model
+
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser("MeanTeacher with CIFAR10.")
@@ -348,7 +356,8 @@ def main():
                                                      len(train_loader) * (args.epochs + 50),
                                                      eta_min=0,
                                                      last_epoch=-1)
-    regularizer = MeanTeacherConsistencyCostRegularizer(model, args.ema_decay) if args.regularizer == "mt" else NullRegularizer()
+    regularizer = MeanTeacherConsistencyCostRegularizer(disable_grad(copy.deepcopy(model)),
+                                                        args.ema_decay) if args.regularizer == "mt" else NullRegularizer()
 
     training_loop(model,
                   train_loader,
