@@ -76,7 +76,6 @@ def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4, superv
                                                                            np.arange(len(train_dataset)),
                                                                            supervised_proportion)))
         unlabeled_idxs = np.setdiff1d(np.arange(len(train_dataset)), labeled_idxs)
-        print(len(labeled_idxs), len(unlabeled_idxs))
 
         # Mutate the training dataset in-place. Not ideal, but this is
         # at least consistent with two-moons

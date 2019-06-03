@@ -20,8 +20,6 @@ class TwoStreamBatchSampler(Sampler):
         self.secondary_batch_size = secondary_batch_size
         self.primary_batch_size = batch_size - secondary_batch_size
 
-        print(len(self.primary_indices), self.primary_batch_size)
-
         assert len(self.primary_indices) >= self.primary_batch_size > 0
         assert len(self.secondary_indices) >= self.secondary_batch_size > 0
 
@@ -86,7 +84,6 @@ def get_moons_loader(n_samples, n_labeled_per_class=None, batch_size=32):
     batch_size = 32
     labeled_batch_size = 6
     labels = trainset.tensors[1]
-    print(labels)
     train_labeled_idxs = (labels != -1).nonzero()[:, 0]
     train_unlabeled_idxs = (labels == -1).nonzero()[:, 0]
     batch_sampler = TwoStreamBatchSampler(
