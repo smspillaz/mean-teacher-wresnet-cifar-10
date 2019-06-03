@@ -39,6 +39,7 @@ from torchvision.transforms import (
 import tqdm
 
 from submodules.wresnet.networks.wide_resnet import Wide_ResNet
+from model import ResNet32x32, ShakeShakeBlock
 
 
 def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4):
@@ -296,7 +297,8 @@ def main():
     args = parser.parse_args()
 
     device = 'cuda' if args.cuda else 'cpu'
-    model = Wide_ResNet(28, 10, args.dropout, IN_CHANNELS[args.dataset], 10).to(device)
+    # model = Wide_ResNet(28, 10, args.dropout, IN_CHANNELS[args.dataset], 10).to(device)
+    model = ResNet32x32(ShakeShakeBlock, layers=[4, 4, 4], channels=96, in_channels=3, downsample='shift_conv', num_classes=10).to(device)
     print(model)
 
     if args.load:
