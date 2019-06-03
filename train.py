@@ -226,7 +226,7 @@ def training_loop(model,
             progress = tqdm.tqdm(train_loader, desc="Train Batch")
             for batch_index, (batch, targets) in enumerate(progress):
                 batch = batch.to(device)
-                targets = labelling_func(targets.to(device))
+                targets = targets.to(device)
 
                 optimizer.zero_grad()
 
