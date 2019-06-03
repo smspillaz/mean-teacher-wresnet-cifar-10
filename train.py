@@ -289,8 +289,10 @@ def main():
     parser.add_argument("--supervised-ratio", type=float, default=1.0)
     parser.add_argument("--regularizer", type=str, default="mt")
     parser.add_argument("--dataset", type=str, default="CIFAR10")
+    parser.add_argument("--ema-decay", type=float, default=0.999)
     parser.add_argument("--load", type=str, default=None)
     parser.add_argument("--test-only", action='store_true')
+    parser.add_argument("--consistency-weight", type=float, default=100)
     args = parser.parse_args()
 
     device = 'cuda' if args.cuda else 'cpu'
@@ -308,7 +310,7 @@ def main():
                                                      len(train_loader) * (args.epochs + 50),
                                                      eta_min=0,
                                                      last_epoch=-1)
-    regularizer = MeanTeacherConsistencyCostRegularizer(model, 0.99) if args.regularizer == "mt" else NullRegularizer()
+    regularizer = MeanTeacherConsistencyCostRegularizer(model, args.ema_decay) if args.regularizer == "mt" else NullRegularizer()
 
     training_loop(model,
                   train_loader,
@@ -319,7 +321,7 @@ def main():
                   regularizer,
                   device,
                   args.epochs,
-                  lambda epoch: 1.0 - np.exp(-25.0 * np.square((epoch + 1) / args.epochs)),
+                  lambda epoch: (1.0 - np.exp(-25.0 * np.square((epoch + 1) / args.epochs))) * args.consistency_weight,
                   lambda labels: torch.tensor([
                       l if i < args.batch_size * args.supervised_ratio else -1
                       for i, l in enumerate(labels)
