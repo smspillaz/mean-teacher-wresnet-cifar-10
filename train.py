@@ -210,7 +210,6 @@ def training_loop(model,
                   device,
                   epochs,
                   consistency_cost_curve,
-                  labelling_func,
                   noise,
                   test_only,
                   write_func):
@@ -361,11 +360,7 @@ def main():
                   device,
                   args.epochs,
                   lambda epoch: (1.0 - np.exp(-25.0 * np.square((epoch + 1) / args.epochs))) * args.consistency_weight,
-                  lambda labels: torch.tensor([
-                      l if i < args.batch_size * args.supervised_ratio else -1
-                      for i, l in enumerate(labels)
-                  ]).to(device),
-                  0.1,
+                  args.noise,
                   args.test_only,
                   result_writer(args.save_to))
 
