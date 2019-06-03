@@ -141,15 +141,16 @@ class MeanTeacherConsistencyCostRegularizer(ConsistencyCostRegularizer):
         teacher_outputs = self.teacher(inputs)
         return softmax_mse_loss(outputs, teacher_outputs.detach(), self.mse)
 
-    def update(self, student, outputs):
+    def update(self, student, outputs, step):
         """Update the teacher using weight averaging.
 
         This will apply weight averaging to all parameters, including Batch
         Normalization layers.
         """
+        beta = min(1 - (1 / (step + 1)), self.beta)
         for param, new_param in zip(self.teacher.parameters(),
                                     student.parameters()):
-            param.data.mul_(self.beta).add_(1 - self.beta, new_param.data)
+            param.data.mul_(self.beta).add_(1 - beta, new_param.data)
 
 
 class NullRegularizer(ConsistencyCostRegularizer):
@@ -162,7 +163,7 @@ class NullRegularizer(ConsistencyCostRegularizer):
         return torch.tensor([0.0])
 
 
-    def update(self, student, outputs):
+    def update(self, student, outputs, step):
         pass
 
 
@@ -181,6 +182,7 @@ def training_loop(model,
                   test_only,
                   write_func):
     """Main training loop."""
+    step = 0
 
     for epoch in tqdm.tqdm(range(0, 1 if test_only else epochs), desc="Epoch"):
         model.train()
@@ -205,7 +207,8 @@ def training_loop(model,
 
                 optimizer.step()
                 scheduler.step()
-                regularizer.update(model, outputs)
+                regularizer.update(model, outputs, step)
+                step += 1
 
                 accuracy = compute_accuracy(outputs, targets)
                 progress.set_postfix({
