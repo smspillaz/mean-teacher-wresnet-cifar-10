@@ -113,6 +113,18 @@ class ConsistencyCostRegularizer(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
+def softmax_mse_loss(input_logits, target_logits, criterion):
+    """Takes softmax on both sides and returns MSE loss
+    Note:
+    - Returns the mean over all examples.
+    - Sends gradients to inputs but not the targets.
+    """
+    assert input_logits.size() == target_logits.size()
+    input_softmax = F.softmax(input_logits, dim=1)
+    target_softmax = F.softmax(target_logits, dim=1)
+    num_classes = input_logits.size()[1]
+    return criterion(input_softmax, target_softmax) / num_classes
+
 
 class MeanTeacherConsistencyCostRegularizer(ConsistencyCostRegularizer):
     """A class that takes the Mean Teacher approach to consistency cost."""
@@ -127,7 +139,7 @@ class MeanTeacherConsistencyCostRegularizer(ConsistencyCostRegularizer):
     def compute_loss(self, inputs, outputs):
         """Compute the loss by comparing the outputs with outputs from the teacher."""
         teacher_outputs = self.teacher(inputs)
-        return self.mse(outputs, teacher_outputs.detach())
+        return softmax_mse_loss(outputs, teacher_outputs.detach(), self.mse)
 
     def update(self, student, outputs):
         """Update the teacher using weight averaging.
