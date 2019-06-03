@@ -354,6 +354,7 @@ def main():
     parser.add_argument("--load", type=str, default=None)
     parser.add_argument("--test-only", action='store_true')
     parser.add_argument("--consistency-weight", type=float, default=100)
+    parser.add_argument("--noise", type=float, default=0.1)
     args = parser.parse_args()
 
     device = 'cuda' if args.cuda else 'cpu'
