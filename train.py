@@ -307,7 +307,11 @@ def main():
     train_loader, val_loader = create_dataloaders(getattr(datasets, args.dataset), batch_size=args.batch_size)
 
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
-    optimizer = optim.Adam(model.parameters(), args.learning_rate, weight_decay=2e-4)
+    optimizer = optim.SGD(model.parameters(),
+                          args.learning_rate,
+                          weight_decay=2e-4,
+                          nesterov=True,
+                          momentum=0.9)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,
                                                      len(train_loader) * (args.epochs + 50),
                                                      eta_min=0,
