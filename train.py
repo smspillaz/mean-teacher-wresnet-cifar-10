@@ -181,7 +181,9 @@ class MeanTeacherConsistencyCostRegularizer(ConsistencyCostRegularizer):
         beta = min(1 - (1 / (step + 1)), self.beta)
         for param, new_param in zip(self.teacher.parameters(),
                                     student.parameters()):
-            param.data.mul_(self.beta).add_(1 - beta, new_param.data)
+            param *= beta
+            param += (1 - beta) * new_param
+            # param.data.mul_(self.beta).add_(1 - beta, new_param.data)
 
 
 class NullRegularizer(ConsistencyCostRegularizer):
