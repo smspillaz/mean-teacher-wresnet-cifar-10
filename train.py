@@ -130,10 +130,10 @@ def softmax_mse_loss(input_logits, target_logits, criterion):
 class MeanTeacherConsistencyCostRegularizer(ConsistencyCostRegularizer):
     """A class that takes the Mean Teacher approach to consistency cost."""
 
-    def __init__(self, student, beta):
-        """Initialize with student model."""
+    def __init__(self, teacher, beta):
+        """Initialize with teacher model."""
         super().__init__()
-        self.teacher = copy.deepcopy(student)
+        self.teacher = teacher
         self.mse = nn.MSELoss(reduction='sum')
         self.beta = beta
 
