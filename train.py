@@ -40,9 +40,20 @@ import tqdm
 
 from submodules.wresnet.networks.wide_resnet import Wide_ResNet
 from model import ResNet32x32, ShakeShakeBlock
+from data import TwoStreamBatchSampler, get_moons_loader
 
 
-def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4):
+def yield_proportion_of_labelled_indices(dataset, indices, supervised_proportion):
+    _, y = zip(*list(iter(dataset)))
+    y = np.array(y)
+
+    for iclass in range(max(y) + 1):
+        indices = np.random.permutation(np.where(y == iclass)[0])
+        ceiling = int(math.ceil(len(indices) * supervised_proportion))
+        yield indices[:ceiling]
+
+
+def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4, supervised_proportion=1.0):
     train_tfms = Compose([
         RandomAffine(degrees=10, translate=(0.1, 0.1), scale=(0.7, 1.3)),
         ToTensor(),
@@ -56,12 +67,30 @@ def create_dataloaders(Dataset, base_size=32, crop_size=28, batch_size=4):
     train_dataset = Dataset('data', train=True, transform=train_tfms, download=True)
     val_dataset = Dataset('data', train=False, transform=val_tfms, download=True)
 
+    # For the training dataset, we need to split the indices into
+    # labelled and unlabelled indices, then use TwoStreamBatchSampler
+    if supervised_proportion < 1.0:
+        np.random.seed(0)
+        labeled_idxs = np.hstack(list(yield_proportion_of_labelled_indices(train_dataset,
+                                                                           np.arange(len(train_dataset)),
+                                                                           supervised_proportion)))
+        unlabeled_idxs = np.setdiff1d(np.arange(len(train_dataset)), labeled_idxs)
+        print(len(labeled_idxs), len(unlabeled_idxs))
+
+        # Mutate the training dataset in-place. Not ideal, but this is
+        # at least consistent with two-moons
+        targets = np.array(train_dataset.train_labels)
+        targets[unlabeled_idxs] = -1
+        train_dataset.train_labels = list(targets)
+
     return (
-        # Can't shuffle the training data, since we always want to mask out
-        # a certain percentage of it
         DataLoader(train_dataset,
-                   batch_size=batch_size,
-                   shuffle=False,
+                   batch_sampler=TwoStreamBatchSampler(
+                       primary_indices=labeled_idxs,
+                       secondary_indices=unlabeled_idxs,
+                       batch_size=batch_size,
+                       secondary_batch_size=int(batch_size * (1 - supervised_proportion))
+                   ),
                    pin_memory=True),
         DataLoader(val_dataset,
                    batch_size=batch_size,
@@ -304,7 +333,8 @@ def main():
     if args.load:
         model.load_state_dict(torch.load(args.load))
 
-    train_loader, val_loader = create_dataloaders(getattr(datasets, args.dataset), batch_size=args.batch_size)
+    # train_loader, val_loader = get_moons_loader(n_samples=1000, n_labeled_per_class=10, batch_size=args.batch_size)
+    train_loader, val_loader = create_dataloaders(getattr(datasets, args.dataset), batch_size=args.batch_size, supervised_proportion=args.supervised_ratio)
 
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
     optimizer = optim.SGD(model.parameters(),
