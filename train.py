@@ -317,6 +317,27 @@ def disable_grad(model):
     return model
 
 
+class MLP(nn.Module):
+    """Toy model that can be used for testing."""
+    def __init__(self):
+        super(MLP, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2, 50),
+            nn.ReLU(),
+            nn.Linear(50, 50),
+            nn.ReLU(),
+            nn.Linear(50, 2)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+    def ema_update(self, mlp, beta):
+        for param, new_param in zip(self.net.parameters(), mlp.net.parameters()):
+            param *= beta
+            param += (1 - beta) * new_param
+
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser("MeanTeacher with CIFAR10.")
@@ -338,6 +359,7 @@ def main():
     device = 'cuda' if args.cuda else 'cpu'
     # model = Wide_ResNet(28, 10, args.dropout, IN_CHANNELS[args.dataset], 10).to(device)
     model = ResNet32x32(ShakeShakeBlock, layers=[4, 4, 4], channels=96, in_channels=3, downsample='shift_conv', num_classes=10).to(device)
+    # model = MLP()
     print(model)
 
     if args.load:
