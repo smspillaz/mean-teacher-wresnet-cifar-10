@@ -337,6 +337,32 @@ class MLP(nn.Module):
             param += (1 - beta) * new_param
 
 
+def create_model(model, args):
+    """Simple helper to pick the model."""
+    if model == "wresnet":
+        return Wide_ResNet(28, 10, args.dropout, IN_CHANNELS[args.dataset], 10)
+    elif model == "resnet":
+        return ResNet32x32(ShakeShakeBlock, layers=[4, 4, 4], channels=96, in_channels=3, downsample='shift_conv', num_classes=10)
+    elif model == "mlp":
+        return MLP()
+
+
+def create_loaders_for_model(model, args):
+    """Simple helper to make sure we get the right dataset.
+
+    For MLP we need to use the two-moon dataset. It is just
+    a test model.
+    """
+    if model == "mlp":
+        return get_moons_loader(n_samples=1000,
+                                n_labeled_per_class=10,
+                                batch_size=args.batch_size)
+
+    return create_dataloaders(getattr(datasets, args.dataset),
+                              batch_size=args.batch_size,
+                              supervised_proportion=args.supervised_ratio)
+
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser("MeanTeacher with CIFAR10.")
@@ -354,19 +380,17 @@ def main():
     parser.add_argument("--test-only", action='store_true')
     parser.add_argument("--consistency-weight", type=float, default=100)
     parser.add_argument("--noise", type=float, default=0.1)
+    parser.add_argument("--model", type=str, default="wresnet")
     args = parser.parse_args()
 
     device = 'cuda' if args.cuda else 'cpu'
-    # model = Wide_ResNet(28, 10, args.dropout, IN_CHANNELS[args.dataset], 10).to(device)
-    model = ResNet32x32(ShakeShakeBlock, layers=[4, 4, 4], channels=96, in_channels=3, downsample='shift_conv', num_classes=10).to(device)
-    # model = MLP()
+    model = create_model(args.model, args).to(device)
     print(model)
 
     if args.load:
         model.load_state_dict(torch.load(args.load))
 
-    # train_loader, val_loader = get_moons_loader(n_samples=1000, n_labeled_per_class=10, batch_size=args.batch_size)
-    train_loader, val_loader = create_dataloaders(getattr(datasets, args.dataset), batch_size=args.batch_size, supervised_proportion=args.supervised_ratio)
+    train_loader, val_loader = create_loaders_for_model(args.model, args)
 
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
     optimizer = optim.SGD(model.parameters(),
