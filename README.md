@@ -57,6 +57,6 @@ Validation set results on CIFAR10, with 10% of data labelled:
 |--------------|----------|-------------|
 | WResNet MT   | 0.6074   | 0.876       |
 | WResNet None | 0.8448   | 0.813       |
+| ResNet  MT   | 0.3938   | 0.899       |
 | ResNet None  | 0.8438   | 0.826       |
-
 
